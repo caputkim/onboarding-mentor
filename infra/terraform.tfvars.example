@@ -1,0 +1,17 @@
+# cp terraform.tfvars.example terraform.tfvars 후 값 채움. terraform.tfvars 는 커밋하지 않는다.
+project_name = "nxtcloud-onboarding"
+environment  = "prod"
+
+aws_profile = ""              # 비우면 환경 자격증명 (AWS_PROFILE / SSO)
+aws_region  = "ap-northeast-2"
+
+hosted_zone_name  = "nxtcloud.kr"
+app_hostname      = "onboard-mentor.nxtcloud.kr" # 멘토·운영 서비스
+newcomer_hostname = "onboard.nxtcloud.kr"        # 신입 서비스 (신입 스택의 app_hostname 과 같아야 함)
+ingress_cidrs    = ["0.0.0.0/0"] # 사내 고정 IP 가 있으면 여기로 좁힌다
+
+image_tag        = "latest"
+seed_admin_email = "caput.kim@nxtcloud.kr"
+
+# anthropic_api_key 는 tfvars 에 넣지 말고 환경변수로:  TF_VAR_anthropic_api_key=sk-ant-...
+# 또는 apply 뒤 Secrets Manager 콘솔(<project>-<env>/app)에서 직접 입력.

@@ -1,0 +1,22 @@
+# 로컬 개발용 Postgres. 신입·멘토 서비스가 같은 DB 를 쓰므로 compose 프로젝트 이름을 고정해 두 폴더 어디서 올려도 같은 컨테이너를 쓴다.
+name: onboard
+services:
+  postgres:
+    image: postgres:16
+    container_name: onboard-postgres
+    environment:
+      POSTGRES_USER: onboard
+      POSTGRES_PASSWORD: onboard
+      POSTGRES_DB: onboard
+    ports:
+      - "5433:5432"
+    volumes:
+      - onboard-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onboard -d onboard"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  onboard-pgdata:

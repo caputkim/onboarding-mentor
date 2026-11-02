@@ -1,0 +1,341 @@
+// 정본 설명: ../../docs/02_데이터모델.md
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm]
+}
+
+enum Role {
+  NEWCOMER
+  MENTOR
+  ADMIN
+}
+
+enum OnboardingStatus {
+  PLANNED
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum TaskType {
+  READ
+  SETUP
+  QUIZ
+  ASSIGNMENT
+  MEETING
+  SHADOWING
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  SUBMITTED
+  DONE
+  BLOCKED
+  SKIPPED
+}
+
+enum Verdict {
+  PASS
+  REVISE
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum DocSource {
+  DRIVE
+  GITHUB
+  MANUAL
+}
+
+enum DocVisibility {
+  ALL
+  TRACK
+  ADMIN
+}
+
+enum EscalationStatus {
+  OPEN
+  ANSWERED
+  CLOSED
+}
+
+enum DraftStatus {
+  PROPOSED
+  ACCEPTED
+  REJECTED
+}
+
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  name             String
+  role             Role     @default(NEWCOMER)
+  title            String?
+  responsibilities String[] @default([])
+  passwordHash     String?
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  onboardingsAsNewcomer Onboarding[]   @relation("Newcomer")
+  onboardingsAsMentor   Onboarding[]   @relation("Mentor")
+  conversations         Conversation[]
+  escalationsAssigned   Escalation[]   @relation("Assignee")
+  auditLogs             AuditLog[]
+}
+
+model Track {
+  id          String            @id @default(cuid())
+  slug        String            @unique
+  name        String
+  description String?
+  order       Int               @default(0)
+  phases      Phase[]
+  onboardings OnboardingTrack[]
+}
+
+model Phase {
+  id              String         @id @default(cuid())
+  trackId         String
+  track           Track          @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  name            String
+  order           Int
+  startOffsetDays Int
+  endOffsetDays   Int
+  tasks           TaskTemplate[]
+
+  @@unique([trackId, order])
+}
+
+model TaskTemplate {
+  id            String         @id @default(cuid())
+  phaseId       String
+  phase         Phase          @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  code          String
+  title         String
+  description   String
+  type          TaskType
+  dueOffsetDays Int
+  evidence      String?
+  rubric        String?
+  docRefs       String[]       @default([])
+  optional      Boolean        @default(false)
+  order         Int
+  instances     TaskInstance[]
+
+  @@unique([phaseId, code])
+}
+
+model Onboarding {
+  id         String           @id @default(cuid())
+  newcomerId String
+  newcomer   User             @relation("Newcomer", fields: [newcomerId], references: [id])
+  mentorId   String?
+  mentor     User?            @relation("Mentor", fields: [mentorId], references: [id])
+  startDate  DateTime         @db.Date
+  status     OnboardingStatus @default(PLANNED)
+  createdAt  DateTime         @default(now())
+
+  tracks    OnboardingTrack[]
+  tasks     TaskInstance[]
+  memory    AgentMemory?
+  summaries WeeklySummary[]
+  queryLogs QueryLog[]
+
+  @@index([newcomerId])
+  @@index([mentorId])
+}
+
+model OnboardingTrack {
+  onboardingId String
+  onboarding   Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  trackId      String
+  track        Track      @relation(fields: [trackId], references: [id])
+
+  @@id([onboardingId, trackId])
+}
+
+model TaskInstance {
+  id            String       @id @default(cuid())
+  onboardingId  String
+  onboarding    Onboarding   @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  templateId    String
+  template      TaskTemplate @relation(fields: [templateId], references: [id])
+  status        TaskStatus   @default(TODO)
+  dueDate       DateTime     @db.Date
+  completedAt   DateTime?
+  blockedReason String?
+  submissions   Submission[]
+
+  @@unique([onboardingId, templateId])
+  @@index([onboardingId, status])
+}
+
+model Submission {
+  id             String       @id @default(cuid())
+  taskInstanceId String
+  taskInstance   TaskInstance @relation(fields: [taskInstanceId], references: [id], onDelete: Cascade)
+  content        String
+  verdict        Verdict?
+  agentFeedback  Json?
+  mentorNote     String?
+  createdAt      DateTime     @default(now())
+
+  @@index([taskInstanceId])
+}
+
+// ---------- 대화 원문: 소유자만 ----------
+model Conversation {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  onboardingId String?
+  title        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  messages     Message[]
+
+  @@index([userId, updatedAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        Json
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model AgentMemory {
+  id           String     @id @default(cuid())
+  onboardingId String     @unique
+  onboarding   Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  summary      String
+  updatedAt    DateTime   @updatedAt
+}
+
+// ---------- 질문 로그 · 에스컬레이션 ----------
+model QueryLog {
+  id                 String      @id @default(cuid())
+  onboardingId       String?
+  onboarding         Onboarding? @relation(fields: [onboardingId], references: [id], onDelete: SetNull)
+  askedById          String?
+  normalizedQuestion String
+  topic              String
+  answered           Boolean
+  citedDocIds        String[]    @default([])
+  createdAt          DateTime    @default(now())
+  escalation         Escalation?
+
+  @@index([topic, answered])
+  @@index([onboardingId, createdAt])
+}
+
+model Escalation {
+  id         String           @id @default(cuid())
+  queryLogId String           @unique
+  queryLog   QueryLog         @relation(fields: [queryLogId], references: [id], onDelete: Cascade)
+  assigneeId String?
+  assignee   User?            @relation("Assignee", fields: [assigneeId], references: [id])
+  askerId    String
+  question   String
+  status     EscalationStatus @default(OPEN)
+  answer     String?
+  answeredAt DateTime?
+  createdAt  DateTime         @default(now())
+  draft      DocDraft?
+
+  @@index([assigneeId, status])
+  @@index([askerId])
+}
+
+model DocDraft {
+  id           String      @id @default(cuid())
+  escalationId String      @unique
+  escalation   Escalation  @relation(fields: [escalationId], references: [id], onDelete: Cascade)
+  title        String
+  content      String
+  status       DraftStatus @default(PROPOSED)
+  documentId   String?
+  createdAt    DateTime    @default(now())
+}
+
+// ---------- 지식베이스 ----------
+model Document {
+  id           String        @id @default(cuid())
+  source       DocSource
+  path         String        @unique
+  title        String
+  summary      String
+  tags         String[]      @default([])
+  visibility   DocVisibility @default(ALL)
+  trackSlug    String?
+  piiFlag      Boolean       @default(false)
+  contentHash  String
+  sourceMeta   Json?
+  lastSyncedAt DateTime
+  sections     DocSection[]
+
+  @@index([source])
+  @@index([visibility, trackSlug])
+}
+
+model DocSection {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  order      Int
+  heading    String
+  text       String
+  tokenCount Int?
+
+  @@unique([documentId, order])
+}
+
+// ---------- 운영 ----------
+model WeeklySummary {
+  id           String     @id @default(cuid())
+  onboardingId String
+  onboarding   Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  weekStart    DateTime   @db.Date
+  content      String
+  createdAt    DateTime   @default(now())
+
+  @@unique([onboardingId, weekStart])
+}
+
+model SyncRun {
+  id         String    @id @default(cuid())
+  source     DocSource
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  added      Int       @default(0)
+  updated    Int       @default(0)
+  skipped    Int       @default(0)
+  excluded   Json?
+  log        String?
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  actor     User     @relation(fields: [actorId], references: [id])
+  action    String
+  target    String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+}
